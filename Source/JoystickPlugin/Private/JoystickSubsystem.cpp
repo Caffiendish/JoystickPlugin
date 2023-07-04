@@ -13,6 +13,7 @@ THIRD_PARTY_INCLUDES_START
 #include "SDL.h"
 #include "SDL_haptic.h"
 #include "SDL_joystick.h"
+#include "SDL_gamecontroller.h"
 
 THIRD_PARTY_INCLUDES_END
 
@@ -34,7 +35,7 @@ void UJoystickSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 	FJoystickLogManager::Get()->LogDebug(TEXT("DeviceSDL Starting"));
 
-	if (SDL_WasInit(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC) != 0)
+	if (SDL_WasInit(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC | SDL_INIT_SENSOR) != 0)
 	{
 		FJoystickLogManager::Get()->LogDebug(TEXT("SDL already loaded"));
 		OwnsSDL = false;
@@ -42,7 +43,7 @@ void UJoystickSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	else
 	{
 		FJoystickLogManager::Get()->LogDebug(TEXT("DeviceSDL::InitSDL() SDL init 0"));
-		SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC);
+		SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC | SDL_INIT_SENSOR);
 		OwnsSDL = true;
 	}
 
@@ -204,6 +205,21 @@ void UJoystickSubsystem::GetDeviceIds(TArray<int>& DeviceIds) const
 	InputDevice->GetDeviceIds(DeviceIds);
 }
 
+bool UJoystickSubsystem::GetGamepadMotion(const int DeviceID, FMotionData& motion) const
+{
+	const FJoystickInputDevice* InputDevice = GetInputDevice();
+	if (InputDevice == nullptr)
+	{
+		return false;
+	}
+
+	auto val = InputDevicePtr->GetDeviceData(DeviceID);
+
+	motion = (val->ControllerSensor);
+	return true;
+}
+
+
 void UJoystickSubsystem::AddHapticDevice(FDeviceInfoSDL& Device) const
 {
 	Device.Haptic = SDL_HapticOpenFromJoystick(Device.Joystick);
@@ -246,7 +262,16 @@ bool UJoystickSubsystem::AddDevice(const int DeviceIndex)
 	Device.DeviceIndex = DeviceIndex;
 	Device.IsGamepad = IsGamepad;
 
-	Device.Joystick = SDL_JoystickOpen(DeviceIndex);
+	if (IsGamepad)
+	{
+		Device.GameController = SDL_GameControllerOpen(DeviceIndex);
+		Device.Joystick = SDL_GameControllerGetJoystick(Device.GameController);
+	}
+	else
+	{
+		Device.Joystick = SDL_JoystickOpen(DeviceIndex);
+	}
+
 	if (Device.Joystick == nullptr)
 	{
 		return false;
@@ -264,6 +289,17 @@ bool UJoystickSubsystem::AddDevice(const int DeviceIndex)
 	FJoystickLogManager::Get()->LogDebug(TEXT("\tNumber of Balls %i"), SDL_JoystickNumBalls(Device.Joystick));
 	FJoystickLogManager::Get()->LogDebug(TEXT("\tNumber of Buttons %i"), SDL_JoystickNumButtons(Device.Joystick));
 	FJoystickLogManager::Get()->LogDebug(TEXT("\tNumber of Hats %i"), SDL_JoystickNumHats(Device.Joystick));
+	if (Device.IsGamepad && Device.GameController != nullptr)
+	{
+		FJoystickLogManager::Get()->LogDebug(TEXT("\tHas Gyro: %s"), (SDL_GameControllerHasSensor(Device.GameController, SDL_SensorType::SDL_SENSOR_GYRO) == SDL_TRUE) ? TEXT("true") : TEXT("false"));
+		FJoystickLogManager::Get()->LogDebug(TEXT("\tHas Accel:  %s"), (SDL_GameControllerHasSensor(Device.GameController, SDL_SensorType::SDL_SENSOR_ACCEL) == SDL_TRUE) ? TEXT("true") : TEXT("false"));
+		FJoystickLogManager::Get()->LogDebug(TEXT("\tHas Unknown sensor:  %s"), (SDL_GameControllerHasSensor(Device.GameController, SDL_SensorType::SDL_SENSOR_UNKNOWN) == SDL_TRUE) ? TEXT("true") : TEXT("false"));
+		FJoystickLogManager::Get()->LogDebug(TEXT("\tNumber of attached sensors:  %i"), (int)SDL_NumSensors());
+		SDL_Sensor* sensor = SDL_SensorOpen(DeviceIndex);
+
+		FJoystickLogManager::Get()->LogDebug(TEXT("\tSensor opened:  %s"), (sensor != nullptr) ? TEXT("true") : TEXT("false"));
+	}
+	
 
 #if ENGINE_MAJOR_VERSION == 5
 	const bool HasRumble = SDL_JoystickHasRumble(Device.Joystick) == SDL_TRUE;
@@ -413,6 +449,28 @@ int UJoystickSubsystem::HandleSDLEvent(void* UserData, SDL_Event* Event)
 				InputDevice->JoystickBall(DeviceId, Event->jball.ball, FVector2D(Event->jball.xrel, Event->jball.yrel));
 			}
 			break;
+		case SDL_CONTROLLERSENSORUPDATE:
+			if (JoystickSubsystem.DeviceMapping.Contains(Event->csensor.which))
+			{
+				const int DeviceId = JoystickSubsystem.DeviceMapping[Event->csensor.which];
+
+				InputDevice->GamepadSensor(DeviceId, Event->csensor);
+			}
+			break;
+		case SDL_SENSORUPDATE:
+			if (JoystickSubsystem.DeviceMapping.Contains(Event->sensor.which))
+			{
+				const int DeviceId = JoystickSubsystem.DeviceMapping[Event->sensor.which];
+
+				InputDevice->Sensor(DeviceId, Event->sensor);
+			}
+			break;
+		case SDL_JOYBATTERYUPDATED:
+			if (JoystickSubsystem.DeviceMapping.Contains(Event->jbattery.which))
+			{
+				FJoystickLogManager::Get()->LogDebug(TEXT("Battery level: %i"), (int)Event->jbattery.level);
+			}
+			break;
 		default:
 			break;
 	}
@@ -438,6 +496,28 @@ FJoystickDeviceData UJoystickSubsystem::CreateInitialDeviceState(const int Devic
 	DeviceState.Buttons.SetNumZeroed(ButtonCount);
 	DeviceState.Hats.SetNumZeroed(HatsCount);
 	DeviceState.Balls.SetNumZeroed(BallsCount);
+
+	if (DeviceInfo->IsGamepad && DeviceInfo->GameController != nullptr)
+	{
+		/*DeviceState.Sensor.bHasAccel = SDL_GameControllerHasSensor(DeviceInfo->GameController, SDL_SensorType::SDL_SENSOR_ACCEL) == SDL_TRUE;
+		DeviceState.Sensor.bHasGyro = SDL_GameControllerHasSensor(DeviceInfo->GameController, SDL_SensorType::SDL_SENSOR_GYRO) == SDL_TRUE;
+
+		if (DeviceState.Sensor.bHasAccel)
+			SDL_GameControllerSetSensorEnabled(DeviceInfo->GameController, SDL_SENSOR_ACCEL, SDL_TRUE);
+		if (DeviceState.Sensor.bHasGyro)
+			SDL_GameControllerSetSensorEnabled(DeviceInfo->GameController, SDL_SENSOR_GYRO, SDL_TRUE);*/
+
+		bool bHasAccel = SDL_GameControllerHasSensor(DeviceInfo->GameController, SDL_SensorType::SDL_SENSOR_ACCEL) == SDL_TRUE;
+		bool bHasGyro = SDL_GameControllerHasSensor(DeviceInfo->GameController, SDL_SensorType::SDL_SENSOR_GYRO) == SDL_TRUE;
+		bool bHasUnk = SDL_GameControllerHasSensor(DeviceInfo->GameController, SDL_SensorType::SDL_SENSOR_UNKNOWN) == SDL_TRUE;
+
+		if (bHasAccel)
+			SDL_GameControllerSetSensorEnabled(DeviceInfo->GameController, SDL_SENSOR_ACCEL, SDL_TRUE);
+		if (bHasGyro)
+			SDL_GameControllerSetSensorEnabled(DeviceInfo->GameController, SDL_SENSOR_GYRO, SDL_TRUE);
+		if (bHasUnk)
+			SDL_GameControllerSetSensorEnabled(DeviceInfo->GameController, SDL_SENSOR_UNKNOWN, SDL_TRUE);
+	}
 	return DeviceState;
 }
 

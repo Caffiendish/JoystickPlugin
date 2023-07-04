@@ -7,6 +7,7 @@ THIRD_PARTY_INCLUDES_START
 
 #include "SDL_haptic.h"
 #include "SDL_joystick.h"
+#include "SDL_gamecontroller.h"
 
 THIRD_PARTY_INCLUDES_END
 
@@ -21,6 +22,7 @@ struct FDeviceInfoSDL
 		  , DeviceName("Unknown Device")
 		  , Haptic(nullptr)
 		  , Joystick(nullptr)
+		  , GameController(nullptr)
 	{
 	}
 
@@ -37,4 +39,5 @@ struct FDeviceInfoSDL
 
 	SDL_Haptic* Haptic;
 	SDL_Joystick* Joystick;
+	SDL_GameController* GameController;
 };

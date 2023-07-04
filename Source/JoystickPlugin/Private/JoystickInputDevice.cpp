@@ -214,7 +214,7 @@ void FJoystickInputDevice::InitialiseInputDevice(const FDeviceInfoSDL& Device)
 	JoystickDeviceInfo.Emplace(DeviceId, DeviceInfo);
 
 	const FJoystickDeviceData InitialState = JoystickSubsystem->CreateInitialDeviceState(DeviceId);
-	const FJoystickDeviceData& JoystickState = JoystickDeviceData.Emplace(DeviceId, InitialState);
+	FJoystickDeviceData& JoystickState = JoystickDeviceData.Emplace(DeviceId, InitialState);
 	UJoystickInputSettings* JoystickInputSettings = GetMutableDefault<UJoystickInputSettings>();
 	if (!IsValid(JoystickInputSettings))
 	{
@@ -253,7 +253,15 @@ void FJoystickInputDevice::InitialiseInputDevice(const FDeviceInfoSDL& Device)
 	// create FKeyDetails for balls
 	InitialiseBalls(DeviceId, JoystickState, BaseKeyName, BaseDisplayName);
 
+	if (Device.IsGamepad)
+	{
+		bool gyro = SDL_GameControllerHasSensor(Device.GameController, SDL_SensorType::SDL_SENSOR_GYRO) == SDL_TRUE;
+		bool accel = SDL_GameControllerHasSensor(Device.GameController, SDL_SensorType::SDL_SENSOR_ACCEL) == SDL_TRUE;
+		JoystickState.ControllerSensor = FMotionData(accel, gyro, 100);
+	}
+
 	JoystickInputSettings->DeviceAdded(FJoystickInputDeviceInformation(DeviceInfo));
+
 
 	UInputSettings* InputSettings = UInputSettings::GetInputSettings();
 	if (IsValid(InputSettings))
@@ -359,6 +367,46 @@ void FJoystickInputDevice::JoystickBall(const int DeviceId, const int Ball, cons
 	FBallData& State = DeviceData.Balls[Ball];
 	State.PreviousDirection = State.Direction;
 	State.Direction = Value;
+}
+
+void FJoystickInputDevice::GamepadSensor(int DeviceId, SDL_ControllerSensorEvent csensor)
+{	
+	if (!JoystickDeviceData.Contains(DeviceId))
+	{
+		return;
+	}
+
+	FJoystickDeviceData& DeviceData = JoystickDeviceData[DeviceId];
+
+	FVector val(0.f);
+
+	switch(csensor.sensor)
+	{
+		case SDL_SENSOR_ACCEL:
+		{
+			val = FVector(csensor.data[0], csensor.data[1], csensor.data[2]);
+		}break;
+		case SDL_SENSOR_GYRO:
+		{
+			val = FVector(csensor.data[0], csensor.data[1], csensor.data[2]);
+		}break;
+	}
+	
+	FMotionData& State = DeviceData.ControllerSensor;
+	State.Update(csensor.timestamp, csensor.sensor, val);
+}
+
+void FJoystickInputDevice::Sensor(int DeviceId, SDL_SensorEvent sensor )
+{
+	if (!JoystickDeviceData.Contains(DeviceId))
+	{
+		return;
+	}
+
+	FJoystickDeviceData& DeviceData = JoystickDeviceData[DeviceId];
+
+	/*FSensorData& State = DeviceData.Sensor;
+	State.Update(TimeStamp, type, vector);*/
 }
 
 FJoystickDeviceData* FJoystickInputDevice::GetDeviceData(const int DeviceId)

@@ -54,6 +54,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Joystick|Functions")
 	void GetDeviceIds(TArray<int>& DeviceIds) const;
 
+	UFUNCTION(BlueprintCallable, Category = "Joystick|Functions")
+	bool GetGamepadMotion(const int DeviceID, FMotionData& motion) const;
+
 	UPROPERTY(BlueprintAssignable, Category = "Joystick|Delegates")
 	FOnJoystickEvent JoystickPluggedInDelegate;
 

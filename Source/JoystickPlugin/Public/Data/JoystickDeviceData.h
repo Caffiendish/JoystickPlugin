@@ -7,6 +7,7 @@
 #include "Data/Input/BallData.h"
 #include "Data/Input/ButtonData.h"
 #include "Data/Input/HatData.h"
+#include "Data/Input/MotionData.h"
 
 #include "JoystickDeviceData.generated.h"
 
@@ -26,4 +27,7 @@ struct JOYSTICKPLUGIN_API FJoystickDeviceData
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadonly, Category = JoystickState)
 	TArray<FBallData> Balls;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadonly, Category = JoystickState)
+	FMotionData ControllerSensor;
 };

@@ -11,6 +11,8 @@
 #include "GenericPlatform/IInputInterface.h"
 #include "GenericPlatform/GenericApplicationMessageHandler.h"
 
+#include "SDL.h"
+
 struct FDeviceInfoSDL;
 
 class FJoystickInputDevice final : public IInputDevice
@@ -32,6 +34,8 @@ public:
 	void JoystickAxis(int DeviceId, int Axis, float Value);
 	void JoystickHat(int DeviceId, int Hat, EJoystickPOVDirection Value);
 	void JoystickBall(int DeviceId, int Ball, FVector2D Value);
+	void Sensor(int DeviceId, SDL_SensorEvent sensor);
+	void GamepadSensor(int DeviceId, SDL_ControllerSensorEvent csensor);
 
 	FJoystickDeviceData* GetDeviceData(int DeviceId);
 	FJoystickInfo* GetDeviceInfo(int DeviceId);
